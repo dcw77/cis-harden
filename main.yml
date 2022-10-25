@@ -1,0 +1,191 @@
+---
+# tasks file for cis-harden
+#
+- name: Ensure login warning banner is configured properly
+  block:
+    - name: Local login warning banner
+      ansible.builtin.copy:
+        src: issue
+        dest: /etc/issue
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Remote login warning banner
+      ansible.builtin.copy:
+        src: issue.net
+        dest: /etc/issue.net
+        owner: root
+        group: root
+        mode: '0644'
+
+- name: Ensure permissions on /etc/motd are configured.
+  ansible.builtin.file:
+    path: /etc/motd
+    state: touch
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Ensure permissions on /etc/group are configured.
+  ansible.builtin.file:
+    path: /etc/group
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Ensure permissions on /etc/group- are configured.
+  ansible.builtin.file:
+    path: /etc/group-
+    owner: root
+    group: root
+    mode: '0600'
+
+
+- name: Ensure permissions on /etc/passwd- are configured.
+  ansible.builtin.file:
+    path: /etc/passwd-
+    owner: root
+    group: root
+    mode: '0600'
+
+- name: Ensure permissions on /boot/grub/grub.cfg are configured.
+  ansible.builtin.file:
+    path: /boot/grub/grub.cfg
+    owner: root
+    group: root
+    mode: '0600'
+
+- name: Ensure permissions on /etc/ssh/sshd_config are configured.
+  ansible.builtin.file:
+    path: /etc/ssh/sshd_config
+    owner: root
+    group: root
+    mode: '0600'
+
+- name: Manage installed Packages
+  block:
+    - name: Remove Packages
+      ansible.builtin.package:
+        name:
+        - rsync
+        - telnet
+        state: absent
+
+    - name: Install Packages
+      ansible.builtin.package:
+        name:
+        - aide
+        - auditd
+        - audispd-plugins
+        - ufw
+        state: present
+
+- name: Copy Audit Rules configuration file
+  ansible.builtin.copy:
+    src: audit.rules
+    dest: /etc/audit/rules.d/audit.rules
+    owner: root
+    group: root
+    mode: '0640'
+
+- name: Start and Enable UFW service
+  ansible.builtin.service:
+    name: ufw
+    state: started
+    enabled: yes
+
+- name: Start and Enable Cron service
+  ansible.builtin.service:
+    name: cron
+    state: started
+    enabled: yes
+
+
+- name: Ensure mounting of unused filesystems is disabled (cramfs, freevxfs, jffs2, hfs, hfsplus, udf, USB)
+  ansible.builtin.lineinfile:
+    line: "{{ item.line }}"
+    path: /etc/modprobe.d/custom_fs.conf
+    create: yes
+  loop:
+    - line: install cramfs /bin/true
+    - line: install freevxfs /bin/true
+    - line: install jffs2 /bin/true
+    - line: install hfs /bin/true
+    - line: install hfsplus /bin/true
+    - line: install udf /bin/true
+    - line: install usb-storage /bin/true
+
+
+- name: sshd configuration
+  ansible.builtin.lineinfile:
+    line: "{{ item.line }}"
+    regexp: "{{ item.regexp }}"
+    path: /etc/ssh/sshd_config
+  loop:
+    - line: Banner /etc/issue.net
+      regexp: ^Banner
+    - line: AllowTcpForwarding no
+      regexp: ^AllowTcpForwarding
+    - line: X11Forwarding no
+      regexp: ^X11Forwarding
+    - line: MaxStartups 10:30:60
+      regexp: ^MaxStartups
+    - line: MaxAuthTries 4
+      regexp: ^MaxAuthTries
+    - line: PermitRootLogin no
+      regexp: ^PermitRootLogin
+    - line: ClientAliveInterval 300
+      regexp: ^ClientAliveInterval
+    - line: ClientAliveCountMax 0
+      regexp: ^ClientAliveCountMax
+    - line: LoginGraceTime 60
+      regexp: ^LoginGraceTime
+
+- name: Ensure only strong MAC algorithms are used.
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    line: MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,hmac-sha2-512,hmac-sha2-256
+
+- name: Ensure tmp mount options are configured in /etc/fstab
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    line: tmpfs /tmp tmpfs defaults,rw,nosuid,nodev,noexec,relatime 0 0
+
+- name: Ensure sudo commands use pty
+  ansible.builtin.lineinfile:
+    path: /etc/sudoers.d/use_pty.conf
+    mode: "0600"
+    line: 'Defaults use_pty'
+    create: yes
+
+- name: Ensure sudo log file exists.
+  ansible.builtin.lineinfile:
+    path: /etc/sudoers.d/logfile.conf
+    mode: "0600"
+    line: 'Defaults logfile="/var/log/sudo.log"'
+    create: yes
+
+- name: Remove cron.deny file
+  ansible.builtin.file:
+    path: /etc/cron.deny
+    state: absent
+
+- name: Create cron.allow file
+  ansible.builtin.file:
+    path: /etc/cron.allow
+    state: touch
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Enable UFW set default deny policy and allow SSH & HTTPS
+  community.general.ufw:
+    state: enabled
+    policy: deny
+    rule: allow
+    proto: tcp
+    port: '{{ item }}'
+  loop:
+    - '22'
+    - '443'
